@@ -22,8 +22,28 @@ except ImportError:
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
+# Extend etree to handle CDATA properly (http://stackoverflow.com/questions/174890)
 def cdata(cdata_text):
-    return '<![CDATA[\n{}\n]]>'.format(cdata_text)
+    element = ET.Element('![CDATA[')
+    element.text = cdata_text
+    return element
+ET._original_serialize_xml = ET._serialize_xml
+if sys.version_info[0] > 2:  # Python 3
+    def _serialize_xml(write, elem, qnames, namespaces, short_empty_elements,
+                       **kwargs):
+        if elem.tag == '![CDATA[':
+            write("\n<%s%s]]>\n" % (
+                    elem.tag, elem.text))
+            return ET._original_serialize_xml(write, elem, qnames, namespaces,
+                                              short_empty_elements, **kwargs)
+else:  # Python 2.7
+    def _serialize_xml(write, elem, encoding, qnames, namespaces):
+        if elem.tag == '![CDATA[':
+            write("\n<%s%s]]>\n" % (
+                    elem.tag, elem.text))
+            return
+        return ET._original_serialize_xml(write, elem, encoding, qnames, namespaces)
+ET._serialize_xml = ET._serialize['xml'] = _serialize_xml
 
 class _TestInfo(object):
 
@@ -178,9 +198,9 @@ class _XMLTestResult(unittest.TestResult):
         for info in self._tests:
             test_suite.append(info.xml())
         system_out = ET.SubElement(test_suite, 'system-out')
-        system_out.text = cdata(self.filter_nonprintable_text(out))
+        system_out.append(cdata(self.filter_nonprintable_text(out)))
         system_err = ET.SubElement(test_suite, 'system-err')
-        system_err.text = cdata(self.filter_nonprintable_text(err))
+        system_err.append(cdata(self.filter_nonprintable_text(err)))
         return ET.ElementTree(test_suite)
 
     def print_report(self, stream, time_taken, out, err):
